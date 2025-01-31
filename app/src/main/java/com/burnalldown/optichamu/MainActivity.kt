@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
                     }
                     val inputStream = contentResolver.openInputStream(file.uri)
                     val bitmap = BitmapFactory.decodeStream(inputStream)
-
+                    inputStream?.close()
                     if (bitmap != null) {
 
                         val compressedFile = documentFile.createFile("image/webp", fileName)
@@ -160,6 +160,13 @@ class MainActivity : ComponentActivity() {
                                 bitmap.compress(Bitmap.CompressFormat.WEBP, 80, out)
                             }
                             Log.i("777", "compressedFile: ${compressedFile.uri}")
+                            // Delete the original file
+                            val filename=file.name
+                            if (file.delete()) {
+                                if (filename != null) {
+                                    compressedFile.renameTo(filename)
+                                }
+                            }
                         } else {
                             Log.e("777", "Failed to create compressed file")
                         }
