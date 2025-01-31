@@ -50,7 +50,12 @@ import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import android.provider.DocumentsContract
 import androidx.annotation.RequiresApi
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers // Import Dispatchers
+import kotlinx.coroutines.withContext
+
 /*
 图片压缩app
  */
@@ -62,7 +67,6 @@ class MainActivity : ComponentActivity() {
     private val REQUIRED_PERMISSIONS = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         arrayOf(
             Manifest.permission.READ_MEDIA_IMAGES,
-//            Manifest.permission.MANAGE_EXTERNAL_STORAGE
         )
     } else {
         arrayOf(
@@ -73,11 +77,14 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var requestPermissionsLauncher: ActivityResultLauncher<Array<String>>
 
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.v("123", "onCreate")
         setContent {
             OptichamuTheme {
+                var showDialog by remember { mutableStateOf(false) }
+                val scope = rememberCoroutineScope()
                 Surface(
                     modifier = Modifier.fillMaxSize()
                         .wrapContentSize(Alignment.Center),
@@ -89,12 +96,17 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Button(onClick = { pickFolder() }) {
+                        Button(onClick = { scope.launch { pickFolder() } }) {
                             Text("选择图片")
                         }
-                        Button(onClick = { compressImages() }) {
+                        Button(onClick = {
+                            scope.launch { compressImages{ showDialog = it } }
+                        }) {
                             Text("压缩")
                         }
+                    }
+                    if (showDialog) {
+                        ProgressDialog()
                     }
                 }
             }
@@ -128,56 +140,91 @@ class MainActivity : ComponentActivity() {
         ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
 
+    @Composable
+    fun ProgressDialog() {
+        Dialog(onDismissRequest = {  }) {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("压缩中")
+                    }
+                }
+            }
+        }
+    }
+
     private fun pickFolder() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
         pickFolderLauncher.launch(intent)
     }
 
     //TODO:修改时间，资源释放
-    private fun compressImages() {
+    private suspend fun compressImages(onShowDialogChange: (Boolean) -> Unit) {
         val folderUri = selectedFolderUri ?: run {
-            Toast.makeText(this, "No folder selected", Toast.LENGTH_SHORT).show()
+            runOnUiThread { // Use runOnUiThread for Toast
+                Toast.makeText(this, "No folder selected", Toast.LENGTH_SHORT).show()
+            }
             return
         }
+        onShowDialogChange(true)
+        withContext(Dispatchers.IO){
+            val documentFile = DocumentFile.fromTreeUri(this@MainActivity, folderUri)
+            if (documentFile != null && documentFile.isDirectory) {
+                documentFile.listFiles().forEach { file ->
+                    if (file.isFile && file.type?.startsWith("image/") == true) {
+                        val fileName = "${file.name?.substringBeforeLast('.')}.webp"
+                        //已经存在则跳过
+                        if (documentFile.findFile(fileName) != null) {
+                            return@forEach
+                        }
+                        val inputStream = contentResolver.openInputStream(file.uri)
+                        val bitmap = BitmapFactory.decodeStream(inputStream)
+                        inputStream?.close()
+                        if (bitmap != null) {
 
-        val documentFile = DocumentFile.fromTreeUri(this, folderUri)
-        if (documentFile != null && documentFile.isDirectory) {
-            documentFile.listFiles().forEach { file ->
-                if (file.isFile && file.type?.startsWith("image/") == true) {
-                    val fileName = "${file.name?.substringBeforeLast('.')}.webp"
-                    //已经存在则跳过
-                    if (documentFile.findFile(fileName) != null) {
-                        return@forEach
-                    }
-                    val inputStream = contentResolver.openInputStream(file.uri)
-                    val bitmap = BitmapFactory.decodeStream(inputStream)
-                    inputStream?.close()
-                    if (bitmap != null) {
-
-                        val compressedFile = documentFile.createFile("image/webp", fileName)
-                        if (compressedFile != null) {
-                            contentResolver.openOutputStream(compressedFile.uri)?.use { out ->
-                                bitmap.compress(Bitmap.CompressFormat.WEBP, 80, out)
-                            }
-                            Log.i("777", "compressedFile: ${compressedFile.uri}")
-                            // Delete the original file
-                            val filename=file.name
-                            if (file.delete()) {
-                                if (filename != null) {
-                                    compressedFile.renameTo(filename)
+                            val compressedFile = documentFile.createFile("image/webp", fileName)
+                            if (compressedFile != null) {
+                                contentResolver.openOutputStream(compressedFile.uri)?.use { out ->
+                                    bitmap.compress(Bitmap.CompressFormat.WEBP, 80, out)
                                 }
+                                Log.i("777", "compressedFile: ${compressedFile.uri}")
+                                // Delete the original file
+                                val filename=file.name
+                                if (file.delete()) {
+                                    if (filename != null) {
+                                        compressedFile.renameTo(filename)
+                                    }
+                                }
+                            } else {
+                                Log.e("777", "Failed to create compressed file")
                             }
                         } else {
-                            Log.e("777", "Failed to create compressed file")
+                            Log.e("777", "Failed to decode bitmap from Uri")
                         }
-                    } else {
-                        Log.e("777", "Failed to decode bitmap from Uri")
                     }
                 }
+            } else {
+                Log.e("777", "Selected folder is not valid")
             }
+        }
+
+        onShowDialogChange(false)
+
+        runOnUiThread { // Use runOnUiThread for Toast
             Toast.makeText(this, "Compressed images in the selected folder", Toast.LENGTH_SHORT).show()
-        } else {
-            Log.e("777", "Selected folder is not valid")
         }
     }
 }
