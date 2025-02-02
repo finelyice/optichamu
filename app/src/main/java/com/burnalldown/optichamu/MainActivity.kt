@@ -171,7 +171,7 @@ class MainActivity : ComponentActivity() {
         pickFolderLauncher.launch(intent)
     }
 
-    //TODO:修改时间，资源释放
+    //TODO:修改时间，性能优化
     private suspend fun compressImages(onShowDialogChange: (Boolean) -> Unit) {
         val folderUri = selectedFolderUri ?: run {
             runOnUiThread { // Use runOnUiThread for Toast
