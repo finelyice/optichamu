@@ -295,12 +295,14 @@ class MainActivity : ComponentActivity() {
                     file.isFile && file.type?.startsWith("image/") == true && file.type != "image/gif"
                 }
 
-                imageFiles.chunked(50).also { batches ->
+                val limitedContext = Dispatchers.IO.limitedParallelism(Runtime.getRuntime().availableProcessors() * 2)
+                imageFiles.chunked(30).also { batches ->
                     totalBatches = batches.size
                     batches.forEachIndexed { index, batch ->
                         currentBatch = index + 1
                         batch.map { file ->
-                            async { compressImage(file) }
+                            async(limitedContext)
+                            { compressImage(file) }
                         }.awaitAll()
                     }
                 }
@@ -348,5 +350,7 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e("Compression", "Error processing: ${file.name}", e)
         }
+        // 释放资源
+        bitmap.recycle()
     }
 }
