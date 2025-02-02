@@ -11,4 +11,5 @@
     <string name="about_source">Source Code</string>
     <string name="about_source_url">https://github.com/finelyice/optichamu</string>
     <string name="folder_hint">No folder selected,Make sure</string>
+    <string name="folder_selected">Folder selected</string>
 </resources>

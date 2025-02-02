@@ -165,8 +165,10 @@ class MainActivity : ComponentActivity() {
                 selectedFolderUri = result.data?.data
                 Log.i("666", "selectedFolderUri: $selectedFolderUri")
                 isFolderSelected = true // 更新状态
+                Toast.makeText(this, getString(R.string.folder_selected), Toast.LENGTH_SHORT).show()
             } else {
                 isFolderSelected = false // 更新状态
+                Toast.makeText(this, getString(R.string.folder_hint), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -284,11 +286,16 @@ class MainActivity : ComponentActivity() {
                     file.isFile && file.type?.startsWith("image/") == true && file.type != "image/gif"
                 }
 
-                imageFiles.map { file ->
-                    async {
-                        compressImage(file, documentFile)
-                    }
-                }.awaitAll()
+                val batchSize = 50 // Define the batch size
+                val batches = imageFiles.chunked(batchSize)
+
+                for (batch in batches) {
+                    batch.map { file ->
+                        async {
+                            compressImage(file, documentFile)
+                        }
+                    }.awaitAll()
+                }
             } else {
                 Log.e("777", "Selected folder is not valid")
             }
