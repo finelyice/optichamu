@@ -50,6 +50,16 @@ import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import android.provider.DocumentsContract
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
@@ -62,8 +72,6 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     private lateinit var pickFolderLauncher: ActivityResultLauncher<Intent>
     private var selectedFolderUri: Uri? = null
-    private val REQUEST_CODE_PERMISSIONS = 10
-    private val REQUEST_CODE_STORAGE_PERMISSION = 101
     private val REQUIRED_PERMISSIONS = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         arrayOf(
             Manifest.permission.READ_MEDIA_IMAGES,
@@ -76,52 +84,75 @@ class MainActivity : ComponentActivity() {
     }
 
     private lateinit var requestPermissionsLauncher: ActivityResultLauncher<Array<String>>
+    private val context = this
+    private var isFolderSelected by mutableStateOf(false)
+
+    @Preview
+    @Composable
+    fun MainScreen() {
+        var showDialog by remember { mutableStateOf(false) }
+        var showAboutDialog by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            HelpButton(onAboutClick = { showAboutDialog = true })
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .wrapContentSize(Alignment.Center),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "optichamu!",
+                    style = TextStyle(
+                        fontWeight = FontWeight.W900, //设置字体粗细
+                        fontSize = 64.sp,
+                        letterSpacing = 4.sp
+                    )
+                )
+                Spacer(modifier = Modifier.height(64.dp))
+                Button(onClick = { scope.launch { pickFolder() } }) {
+                    Text(stringResource(id = R.string.select_image))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = {
+                    scope.launch { compressImages { showDialog = it; isFolderSelected = false } }
+
+                },
+                    enabled = isFolderSelected) {
+                    Text(stringResource(id = R.string.compress))
+                }
+            }
+            if (showDialog) {
+                ProgressDialog()
+            }
+            if (showAboutDialog) {
+                AboutDialog(onDismiss = { showAboutDialog = false })
+            }
+        }
+    }
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.v("123", "onCreate")
+
         setContent {
             OptichamuTheme {
-                var showDialog by remember { mutableStateOf(false) }
-                val scope = rememberCoroutineScope()
-                Surface(
-                    modifier = Modifier.fillMaxSize()
-                        .wrapContentSize(Alignment.Center),
-                    color = MaterialTheme.colorScheme.background,
-
-                    ) {
-                    Column(
-                        modifier = Modifier,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Button(onClick = { scope.launch { pickFolder() } }) {
-                            Text("选择图片")
-                        }
-                        Button(onClick = {
-                            scope.launch { compressImages{ showDialog = it } }
-                        }) {
-                            Text("压缩")
-                        }
-                    }
-                    if (showDialog) {
-                        ProgressDialog()
-                    }
-                }
+                MainScreen()
             }
         }
 
         requestPermissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             if (permissions.all { it.value }) {
-                Toast.makeText(this, "Permissions granted by the user!!!", Toast.LENGTH_SHORT).show()
+                Log.i("222", "Permissions: ${REQUIRED_PERMISSIONS.joinToString()}")
             } else {
-                Toast.makeText(this, "Permissions not granted by the user.", Toast.LENGTH_SHORT).show()
+                Log.i("222", "Permissions not granted by the user!!!")
             }
         }
 
         if (allPermissionsGranted()) {
-            Toast.makeText(this, "Permissions already granted by the user!!!", Toast.LENGTH_SHORT).show()
             Log.i("222", "Permissions: ${REQUIRED_PERMISSIONS.joinToString()}")
         } else {
             requestPermissionsLauncher.launch(REQUIRED_PERMISSIONS)
@@ -131,7 +162,9 @@ class MainActivity : ComponentActivity() {
             if (result.resultCode == RESULT_OK) {
                 selectedFolderUri = result.data?.data
                 Log.i("666", "selectedFolderUri: $selectedFolderUri")
-                Toast.makeText(this, "Selected folder: $selectedFolderUri", Toast.LENGTH_SHORT).show()
+                isFolderSelected = true // 更新状态
+            } else {
+                isFolderSelected = false // 更新状态
             }
         }
     }
@@ -140,6 +173,68 @@ class MainActivity : ComponentActivity() {
         ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
 
+
+    @Composable
+    fun HelpButton(onAboutClick: () -> Unit) {
+        var expanded by remember { mutableStateOf(false) }
+
+        Box(
+            modifier = Modifier
+                .padding(16.dp)
+                .wrapContentSize(Alignment.TopStart)
+        ) {
+            IconButton(onClick = { expanded = true }) {
+                Icon(Icons.Default.Menu, contentDescription = "Menu")
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                DropdownMenuItem(onClick = {
+                    expanded = false
+                    onAboutClick()
+                }, text = { Text(stringResource(id = R.string.about)) })
+            }
+        }
+    }
+
+    @Composable
+    fun AboutDialog(onDismiss: () -> Unit) {
+        Dialog(onDismissRequest = onDismiss) {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = stringResource(id = R.string.about),
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = stringResource(id = R.string.about_text))
+                    Text(text= stringResource(id =R.string.about_source))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ClickableText(
+                        text = AnnotatedString(
+                            text = stringResource(id = R.string.about_source_url),
+                            spanStyle = SpanStyle(textDecoration = TextDecoration.Underline, color = Color.Blue)
+                        ),
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.about_source_url)))
+                            context.startActivity(intent)
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = onDismiss) {
+                        Text("OK")
+                    }
+                }
+            }
+        }
+    }
     @Composable
     fun ProgressDialog() {
         Dialog(onDismissRequest = {  }) {
@@ -149,7 +244,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 Box(
                     modifier = Modifier
-                        .size(100.dp)
+                        .size(200.dp)
                         .padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -159,7 +254,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         CircularProgressIndicator()
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("压缩中")
+                        Text(stringResource(id = R.string.compressing))
                     }
                 }
             }
@@ -175,7 +270,7 @@ class MainActivity : ComponentActivity() {
     private suspend fun compressImages(onShowDialogChange: (Boolean) -> Unit) {
         val folderUri = selectedFolderUri ?: run {
             runOnUiThread { // Use runOnUiThread for Toast
-                Toast.makeText(this, "No folder selected", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.folder_hint), Toast.LENGTH_SHORT).show()
             }
             return
         }
@@ -224,7 +319,7 @@ class MainActivity : ComponentActivity() {
         onShowDialogChange(false)
 
         runOnUiThread { // Use runOnUiThread for Toast
-            Toast.makeText(this, "Compressed images in the selected folder", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.compress_success), Toast.LENGTH_SHORT).show()
         }
     }
 }
