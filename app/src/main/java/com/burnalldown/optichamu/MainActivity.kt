@@ -64,6 +64,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers // Import Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 
 /*
@@ -104,7 +106,7 @@ class MainActivity : ComponentActivity() {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "optichamu!",
+                    text = "optichamu",
                     style = TextStyle(
                         fontWeight = FontWeight.W900, //设置字体粗细
                         fontSize = 64.sp,
@@ -275,42 +277,18 @@ class MainActivity : ComponentActivity() {
             return
         }
         onShowDialogChange(true)
-        withContext(Dispatchers.IO){
+        withContext(Dispatchers.IO) {
             val documentFile = DocumentFile.fromTreeUri(this@MainActivity, folderUri)
             if (documentFile != null && documentFile.isDirectory) {
-                documentFile.listFiles().forEach { file ->
-                    if (file.isFile && file.type?.startsWith("image/") == true) {
-                        val fileName = "${file.name?.substringBeforeLast('.')}.webp"
-                        //已经存在则跳过
-                        if (documentFile.findFile(fileName) != null) {
-                            return@forEach
-                        }
-                        val inputStream = contentResolver.openInputStream(file.uri)
-                        val bitmap = BitmapFactory.decodeStream(inputStream)
-                        inputStream?.close()
-                        if (bitmap != null) {
-
-                            val compressedFile = documentFile.createFile("image/webp", fileName)
-                            if (compressedFile != null) {
-                                contentResolver.openOutputStream(compressedFile.uri)?.use { out ->
-                                    bitmap.compress(Bitmap.CompressFormat.WEBP, 80, out)
-                                }
-                                Log.i("777", "compressedFile: ${compressedFile.uri}")
-                                // Delete the original file
-                                val filename=file.name
-                                if (file.delete()) {
-                                    if (filename != null) {
-                                        compressedFile.renameTo(filename)
-                                    }
-                                }
-                            } else {
-                                Log.e("777", "Failed to create compressed file")
-                            }
-                        } else {
-                            Log.e("777", "Failed to decode bitmap from Uri")
-                        }
-                    }
+                val imageFiles = documentFile.listFiles().filter { file ->
+                    file.isFile && file.type?.startsWith("image/") == true && file.type != "image/gif"
                 }
+
+                imageFiles.map { file ->
+                    async {
+                        compressImage(file, documentFile)
+                    }
+                }.awaitAll()
             } else {
                 Log.e("777", "Selected folder is not valid")
             }
@@ -320,6 +298,35 @@ class MainActivity : ComponentActivity() {
 
         runOnUiThread { // Use runOnUiThread for Toast
             Toast.makeText(this, getString(R.string.compress_success), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private suspend fun compressImage(file: DocumentFile, documentFile: DocumentFile) {
+        val fileName = "${file.name?.substringBeforeLast('.')}.webp"
+        if (documentFile.findFile(fileName) != null) {
+            return
+        }
+        val inputStream = contentResolver.openInputStream(file.uri)
+        val bitmap = BitmapFactory.decodeStream(inputStream)
+        inputStream?.close()
+        if (bitmap != null) {
+            val compressedFile = documentFile.createFile("image/webp", fileName)
+            if (compressedFile != null) {
+                contentResolver.openOutputStream(compressedFile.uri)?.use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.WEBP, 80, out)
+                }
+                Log.i("777", "compressedFile: ${compressedFile.uri}")
+                val filename = file.name
+                if (file.delete()) {
+                    if (filename != null) {
+                        compressedFile.renameTo(filename)
+                    }
+                }
+            } else {
+                Log.e("777", "Failed to create compressed file")
+            }
+        } else {
+            Log.e("777", "Failed to decode bitmap from Uri")
         }
     }
 }
