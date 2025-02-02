@@ -12,4 +12,5 @@
     <string name="about_source_url">https://github.com/finelyice/optichamu</string>
     <string name="folder_hint">请选择图片文件夹</string>
     <string name="folder_selected">图片文件夹选取成功</string>
+    <string name="loading">加载中</string>
 </resources>

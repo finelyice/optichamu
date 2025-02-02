@@ -88,6 +88,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var requestPermissionsLauncher: ActivityResultLauncher<Array<String>>
     private val context = this
     private var isFolderSelected by mutableStateOf(false)
+    private var currentBatch by mutableStateOf(0)
+    private var totalBatches by mutableStateOf(0)
 
     @Preview
     @Composable
@@ -127,7 +129,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             if (showDialog) {
-                ProgressDialog()
+                ProgressDialog(currentBatch, totalBatches)
             }
             if (showAboutDialog) {
                 AboutDialog(onDismiss = { showAboutDialog = false })
@@ -240,8 +242,8 @@ class MainActivity : ComponentActivity() {
         }
     }
     @Composable
-    fun ProgressDialog() {
-        Dialog(onDismissRequest = {  }) {
+    fun ProgressDialog(currentBatch: Int, totalBatches: Int) {
+        Dialog(onDismissRequest = { }) {
             Surface(
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surface,
@@ -258,7 +260,12 @@ class MainActivity : ComponentActivity() {
                     ) {
                         CircularProgressIndicator()
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text(stringResource(id = R.string.compressing))
+                        if(currentBatch == 0) Text(stringResource(id = R.string.loading))
+                        else{
+                            Text(stringResource(id = R.string.compressing))
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("$currentBatch / $totalBatches")
                     }
                 }
             }
@@ -273,12 +280,14 @@ class MainActivity : ComponentActivity() {
     //TODO:修改时间，性能优化
     private suspend fun compressImages(onShowDialogChange: (Boolean) -> Unit) {
         val folderUri = selectedFolderUri ?: run {
-            runOnUiThread { // Use runOnUiThread for Toast
+            runOnUiThread {
                 Toast.makeText(this, getString(R.string.folder_hint), Toast.LENGTH_SHORT).show()
             }
             return
         }
+
         onShowDialogChange(true)
+
         withContext(Dispatchers.IO) {
             val documentFile = DocumentFile.fromTreeUri(this@MainActivity, folderUri)
             if (documentFile != null && documentFile.isDirectory) {
@@ -286,54 +295,58 @@ class MainActivity : ComponentActivity() {
                     file.isFile && file.type?.startsWith("image/") == true && file.type != "image/gif"
                 }
 
-                val batchSize = 50 // Define the batch size
-                val batches = imageFiles.chunked(batchSize)
-
-                for (batch in batches) {
-                    batch.map { file ->
-                        async {
-                            compressImage(file, documentFile)
-                        }
-                    }.awaitAll()
+                imageFiles.chunked(50).also { batches ->
+                    totalBatches = batches.size
+                    batches.forEachIndexed { index, batch ->
+                        currentBatch = index + 1
+                        batch.map { file ->
+                            async { compressImage(file) }
+                        }.awaitAll()
+                    }
                 }
             } else {
-                Log.e("777", "Selected folder is not valid")
+                Log.e("Compression", "Invalid folder selection")
             }
         }
 
         onShowDialogChange(false)
 
-        runOnUiThread { // Use runOnUiThread for Toast
+        runOnUiThread {
             Toast.makeText(this, getString(R.string.compress_success), Toast.LENGTH_SHORT).show()
         }
+
+        currentBatch = 0
+        totalBatches = 0
     }
 
-    private suspend fun compressImage(file: DocumentFile, documentFile: DocumentFile) {
-        val fileName = "${file.name?.substringBeforeLast('.')}.webp"
-        if (documentFile.findFile(fileName) != null) {
+    private suspend fun compressImage(file: DocumentFile) {
+        // 获取文件类型并确定压缩格式
+//        val format = when (file.type?.substringAfterLast("/")) {
+//            "jpeg", "jpg" -> Bitmap.CompressFormat.JPEG
+//            "png" -> Bitmap.CompressFormat.PNG
+//            "webp" -> Bitmap.CompressFormat.WEBP
+//            else -> return  // 不支持的类型直接跳过
+//        }
+
+        // 解码图片
+        val bitmap = contentResolver.openInputStream(file.uri)?.use {
+            BitmapFactory.decodeStream(it)
+        } ?: run {
+            Log.e("Compression", "Failed to decode: ${file.name}")
             return
         }
-        val inputStream = contentResolver.openInputStream(file.uri)
-        val bitmap = BitmapFactory.decodeStream(inputStream)
-        inputStream?.close()
-        if (bitmap != null) {
-            val compressedFile = documentFile.createFile("image/webp", fileName)
-            if (compressedFile != null) {
-                contentResolver.openOutputStream(compressedFile.uri)?.use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.WEBP, 80, out)
+
+        // 直接覆盖原文件
+        try {
+            contentResolver.openOutputStream(file.uri, "wt")?.use { outputStream ->
+                if (!bitmap.compress(Bitmap.CompressFormat.WEBP, 80, outputStream)) {
+                    Log.e("Compression", "Compression failed: ${file.name}")
                 }
-                Log.i("777", "compressedFile: ${compressedFile.uri}")
-                val filename = file.name
-                if (file.delete()) {
-                    if (filename != null) {
-                        compressedFile.renameTo(filename)
-                    }
-                }
-            } else {
-                Log.e("777", "Failed to create compressed file")
-            }
-        } else {
-            Log.e("777", "Failed to decode bitmap from Uri")
+            } ?: Log.e("Compression", "Can't open output stream for: ${file.name}")
+        } catch (e: SecurityException) {
+            Log.e("Compression", "Permission denied for: ${file.name}", e)
+        } catch (e: Exception) {
+            Log.e("Compression", "Error processing: ${file.name}", e)
         }
     }
 }
