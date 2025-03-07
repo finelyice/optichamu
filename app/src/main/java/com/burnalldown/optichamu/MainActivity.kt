@@ -67,6 +67,7 @@ import kotlinx.coroutines.Dispatchers // Import Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 /*
 图片压缩app
@@ -295,17 +296,19 @@ class MainActivity : ComponentActivity() {
                     file.isFile && file.type?.startsWith("image/") == true && file.type != "image/gif"
                 }
 
+                totalBatches = imageFiles.size
                 val limitedContext = Dispatchers.IO.limitedParallelism(Runtime.getRuntime().availableProcessors() * 2)
-                imageFiles.chunked(30).also { batches ->
-                    totalBatches = batches.size
-                    batches.forEachIndexed { index, batch ->
-                        currentBatch = index + 1
-                        batch.map { file ->
-                            async(limitedContext)
-                            { compressImage(file) }
-                        }.awaitAll()
+                val completedCount = AtomicInteger(0)
+                val jobs = imageFiles.map { file ->
+                    async(limitedContext) {
+                        compressImage(file)
+                        val current = completedCount.incrementAndGet()
+                        withContext(Dispatchers.Main) {
+                            currentBatch = current // 更新已完成的计数
+                        }
                     }
                 }
+                jobs.awaitAll()
             } else {
                 Log.e("Compression", "Invalid folder selection")
             }
