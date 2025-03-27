@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
     fun MainScreen() {
         var showDialog by remember { mutableStateOf(false) }
         var showAboutDialog by remember { mutableStateOf(false) }
+        var formatFilterEnabled by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
 
         Box(modifier = Modifier.fillMaxSize()) {
@@ -122,11 +123,19 @@ class MainActivity : ComponentActivity() {
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = {
-                    scope.launch { compressImages { showDialog = it; isFolderSelected = false } }
+                    scope.launch { compressImages(formatFilterEnabled) { showDialog = it; isFolderSelected = false } }
 
                 },
                     enabled = isFolderSelected) {
                     Text(stringResource(id = R.string.compress))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = formatFilterEnabled,
+                        onCheckedChange = { formatFilterEnabled = it }
+                    )
+                    Text(stringResource(id = R.string.format_filter))
                 }
             }
             if (showDialog) {
@@ -279,7 +288,7 @@ class MainActivity : ComponentActivity() {
     }
 
     //TODO:修改时间，性能优化
-    private suspend fun compressImages(onShowDialogChange: (Boolean) -> Unit) {
+    private suspend fun compressImages(formatFilterEnabled: Boolean, onShowDialogChange: (Boolean) -> Unit) {
         val folderUri = selectedFolderUri ?: run {
             runOnUiThread {
                 Toast.makeText(this, getString(R.string.folder_hint), Toast.LENGTH_SHORT).show()
@@ -292,10 +301,15 @@ class MainActivity : ComponentActivity() {
         withContext(Dispatchers.IO) {
             val documentFile = DocumentFile.fromTreeUri(this@MainActivity, folderUri)
             if (documentFile != null && documentFile.isDirectory) {
-                val imageFiles = documentFile.listFiles().filter { file ->
-                    file.isFile && file.type?.startsWith("image/") == true && file.type != "image/gif"
+                val imageFiles = if (formatFilterEnabled) {
+                    documentFile.listFiles().filter { file ->
+                        file.isFile && file.type?.startsWith("image/") == true && file.type != "image/gif"
+                    }
+                } else {
+                    documentFile.listFiles().filter { file ->
+                        file.isFile
+                    }
                 }
-
                 totalBatches = imageFiles.size
                 val limitedContext = Dispatchers.IO.limitedParallelism(Runtime.getRuntime().availableProcessors() * 2)
                 val completedCount = AtomicInteger(0)

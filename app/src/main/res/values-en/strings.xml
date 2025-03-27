@@ -13,4 +13,5 @@
     <string name="folder_hint">No folder selected,Make sure</string>
     <string name="folder_selected">Folder selected</string>
     <string name="loading">loading</string>
+    <string name="format_filter">Format Filter</string>
 </resources>
