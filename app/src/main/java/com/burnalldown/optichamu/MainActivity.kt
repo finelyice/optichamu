@@ -311,7 +311,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 totalBatches = imageFiles.size
-                val limitedContext = Dispatchers.IO.limitedParallelism(Runtime.getRuntime().availableProcessors() * 2)
+                val limitedContext = Dispatchers.IO.limitedParallelism(Runtime.getRuntime().availableProcessors())
                 val completedCount = AtomicInteger(0)
                 val jobs = imageFiles.map { file ->
                     async(limitedContext) {
